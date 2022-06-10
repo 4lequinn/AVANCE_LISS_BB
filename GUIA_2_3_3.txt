@@ -1,0 +1,140 @@
+
+
+
+-- CASO 1
+
+-- ACTIVAMOS LA SALIDA DE DBMS
+SET SERVEROUTPUT ON;
+
+
+-- CREAMOS TIPOS DE DATO VARRAY
+CREATE OR REPLACE TYPE TIPO_PUNTOS_NORMALES IS VARRAY(1) OF NUMBER NOT NULL;
+
+CREATE OR REPLACE TYPE TIPO_PUNTOS_EXTRA IS VARRAY(3) OF NUMBER NOT NULL;
+
+
+-- CREAMOS UNA VARIABLE BIND PARA GESTIONAR LA FECHA DE PROCESO
+VARIABLE b_fecha_proceso VARCHAR2(10);
+
+-- OBJETIVO POBLAR LA TABLA DETALLE_PUNTOS_TARJETA_CATB
+DECLARE
+
+    -- DECLARAMOS UNA VARIABLE DE TIPO CURSOR QUE RECORRE LOS DATOS DE LOS CLIENTES
+    CURSOR c1(p_fecha DATE) IS 
+            SELECT c.numrun, c.dvrun, tc.nro_tarjeta, ttc.NRO_TRANSACCION,
+                ttc.fecha_transaccion, ttt.COD_TPTRAN_TARJETA,
+                ttt.nombre_tptran_tarjeta, ttc.monto_transaccion, tp.COD_TIPO_CLIENTE
+                FROM CLIENTE C
+                INNER JOIN TIPO_CLIENTE tp
+                ON c.COD_TIPO_CLIENTE = tp.COD_TIPO_CLIENTE
+                INNER JOIN TARJETA_CLIENTE TC
+                ON C.numrun = TC.numrun
+                INNER JOIN transaccion_tarjeta_cliente TTC
+                ON TC.NRO_TARJETA = TTC.NRO_TARJETA
+                INNER JOIN tipo_transaccion_tarjeta ttt
+                ON ttc.cod_tptran_tarjeta = ttt.cod_tptran_tarjeta
+                WHERE TO_CHAR(ttc.fecha_transaccion,'YYYY') = TO_NUMBER(TO_CHAR(p_fecha,'YYYY')) - 1 -- LE RESTAMOS UN AÑO A LA FECHA DE PROCESO
+                ORDER BY ttc.fecha_transaccion ASC, c.numrun ASC, ttc.NRO_TRANSACCION ASC;
+
+    -- DECLARAMOS VARIABLES DE TIPO REGISTRO
+    
+    -- REGISTRO DEL CURSOR
+    REG_C1 C1%ROWTYPE;
+    
+    -- REGISTRO DE LA TABLA 
+    REG_DETALLE_CATB DETALLE_PUNTOS_TARJETA_CATB%ROWTYPE;
+    
+    -- DECLARAMOS LAS VARIABLES DE TIPO VARRAY 
+    T_PUNTOS_NORMALES TIPO_PUNTOS_NORMALES DEFAULT TIPO_PUNTOS_NORMALES(250);
+    
+    T_PUNTOS_EXTRA TIPO_PUNTOS_EXTRA DEFAULT TIPO_PUNTOS_EXTRA(300,550,700);
+    
+    -- VARIABLES 
+    v_monto_anual number;
+BEGIN
+    -- SOLICITAMOS INGRESAR LA FECHA DE PROCESO
+    :b_fecha_proceso := TO_DATE('&fecha');
+    
+
+    -- TRUNCAMOS LA TABLA EN TIEMPO DE EJECUCIÓN     
+    EXECUTE IMMEDIATE 'TRUNCATE TABLE DETALLE_PUNTOS_TARJETA_CATB';
+    COMMIT;
+    
+    -- INICIAMOS EL CURSOR
+    FOR REG_C1 IN C1(:b_fecha_proceso) 
+    LOOP
+        BEGIN
+            
+            -- CÁLCULOS 
+            
+            REG_DETALLE_CATB.NUMRUN := REG_C1.numrun; 
+            REG_DETALLE_CATB.DVRUN := REG_C1.dvrun; 
+            REG_DETALLE_CATB.NRO_TARJETA := REG_C1.nro_tarjeta; 
+            REG_DETALLE_CATB.NRO_TRANSACCION := REG_C1.nro_transaccion; 
+            REG_DETALLE_CATB.FECHA_TRANSACCION := REG_C1.fecha_transaccion; 
+            REG_DETALLE_CATB.TIPO_TRANSACCION := reg_c1.nombre_tptran_tarjeta; 
+            REG_DETALLE_CATB.MONTO_TRANSACCION := reg_c1.monto_transaccion; 
+            
+            -- EVALUAR PUNTOS
+    
+            -- SISTEMA DE PUNTOS NORMALES
+            
+            
+            -- 101 Compras Tiendas Retail o Asociadas
+            -- 102 Avance en Efectivo
+            -- 103 Súper Avance en Efectivo
+            
+            IF REG_C1.COD_TPTRAN_TARJETA IN(101,102,103) THEN 
+            
+                 -- Por cada $100.000 de monto que posea el cliente, se le sumarán 250 puntos all the best.
+                REG_DETALLE_CATB.PUNTOS_ALLTHEBEST := TRUNC(REG_DETALLE_CATB.MONTO_TRANSACCION / 100000) * t_puntos_normales(1);
+            
+                -- SISTEMA DE PUNTOS EXTRA
+                    
+                -- VERIFICACIÓN
+                -- Dueñas de casa y pensionados o de tercera edad.
+                IF REG_C1.COD_TIPO_CLIENTE IN(30,40) THEN
+                    
+                    -- RESCATAR EL MONTO TOTAL ANUAL
+                    SELECT SUM(monto_transaccion) INTO v_monto_anual FROM transaccion_tarjeta_cliente 
+                    WHERE nro_tarjeta = REG_DETALLE_CATB.NRO_TARJETA 
+                    AND TO_CHAR(FECHA_TRANSACCION,'YYYY') = TO_NUMBER(TO_CHAR(TO_DATE(:b_fecha_proceso),'YYYY')) - 1;
+                    
+                    IF  v_monto_anual between 500000 AND 700000 THEN
+                        REG_DETALLE_CATB.PUNTOS_ALLTHEBEST := TRUNC(REG_DETALLE_CATB.MONTO_TRANSACCION / 100000) * t_puntos_EXTRA(1);
+                    ELSIF v_monto_anual between 700001 AND 900000 THEN
+                        REG_DETALLE_CATB.PUNTOS_ALLTHEBEST := TRUNC(REG_DETALLE_CATB.MONTO_TRANSACCION / 100000) * t_puntos_EXTRA(2);
+                    ELSIF v_monto_anual > 900000 THEN
+                        REG_DETALLE_CATB.PUNTOS_ALLTHEBEST := TRUNC(REG_DETALLE_CATB.MONTO_TRANSACCION / 100000) * t_puntos_EXTRA(3);
+                    END IF;
+                
+                END IF; 
+            END IF;    
+            
+            -- OBJETIVO POBLAR LA TABLA DETALLE_PUNTOS_TARJETA_CATB
+            
+            INSERT INTO detalle_puntos_tarjeta_catb VALUES REG_DETALLE_CATB;
+            COMMIT;
+            
+        EXCEPTION
+            WHEN OTHERS THEN
+                DBMS_OUTPUT.PUT_LINE('Error en el proceso del cursor' || SQLERRM);
+        END;
+    END LOOP;
+END;
+
+
+
+-- SELECT TEMPORAL PARA EL CURSOR EXPLICITO
+SELECT c.numrun, c.dvrun, tc.nro_tarjeta, ttc.NRO_TRANSACCION,
+ttc.fecha_transaccion, ttt.nombre_tptran_tarjeta, ttc.monto_transaccion
+FROM CLIENTE C
+INNER JOIN TARJETA_CLIENTE TC
+ON C.numrun = TC.numrun
+INNER JOIN transaccion_tarjeta_cliente TTC
+ON TC.NRO_TARJETA = TTC.NRO_TARJETA
+INNER JOIN tipo_transaccion_tarjeta ttt
+ON ttc.cod_tptran_tarjeta = ttt.cod_tptran_tarjeta
+where c.numrun = 22176845
+
+-- RESUMEN_PUNTOS_TARJETA_CATB
