@@ -17,6 +17,11 @@ CREATE OR REPLACE TYPE TIPO_PUNTOS_EXTRA IS VARRAY(3) OF NUMBER NOT NULL;
 VARIABLE b_fecha_proceso VARCHAR2(10);
 
 
+-----------------------------------------------------------------
+-- SIMULAR FECHA CON EL AÑO 2022
+-- PROCESARÁ A LOS CLIENTES DEL AÑO PASADO (2021)
+-----------------------------------------------------------------
+
 -- OBJETIVO POBLAR LA TABLA DETALLE_PUNTOS_TARJETA_CATB
 DECLARE
 
@@ -188,6 +193,119 @@ BEGIN
         END;
     END LOOP;
     
+END;
 
+
+-- CASO 2
+
+-- OBJETIVO 
+-- SE NOS SOLICITA POBLAR LA TABLA DETALLE_APORTE_SBIF
+-- SE NOS SOLICITA POBLAR LA TABLA RESUMEN_APORTE_SBIF
+
+-----------------------------------------------------------------
+-- SIMULAR FECHA CON EL AÑO 2023
+-- PROCESARÁ A LOS CLIENTES DEL AÑO PASADO (2022)
+-----------------------------------------------------------------
+
+DECLARE
+    -- DECLARAMOS UN CURSOR PARA POBLAR LA TABLA DETALLE_APORTE_SBIF
+    CURSOR C1 (p_fecha DATE) IS
+        SELECT c.numrun, c.dvrun, tc.nro_tarjeta, ttc.NRO_TRANSACCION,
+                ttc.fecha_transaccion, ttt.nombre_tptran_tarjeta,
+                ttc.monto_total_transaccion
+                FROM CLIENTE C
+                INNER JOIN TIPO_CLIENTE tp
+                ON c.COD_TIPO_CLIENTE = tp.COD_TIPO_CLIENTE
+                INNER JOIN TARJETA_CLIENTE TC
+                ON C.numrun = TC.numrun
+                INNER JOIN transaccion_tarjeta_cliente TTC
+                ON TC.NRO_TARJETA = TTC.NRO_TARJETA
+                INNER JOIN tipo_transaccion_tarjeta ttt
+                ON ttc.cod_tptran_tarjeta = ttt.cod_tptran_tarjeta
+                WHERE TO_CHAR(ttc.fecha_transaccion,'YYYY') = TO_CHAR((p_fecha),'YYYY') 
+                AND TTT.COD_TPTRAN_TARJETA IN (102, 103)
+                ORDER BY ttc.fecha_transaccion ASC, C.NUMRUN ASC;  
+                
+    -- DECLARAMOS UN CURSOR PARA POBLAR LA TABLA RESUMEN_APORTE_SBIF
+    CURSOR C2 IS 
+        SELECT TO_CHAR(FECHA_TRANSACCION,'MMYYYY'), tipo_transaccion, SUM(monto_transaccion), SUM(aporte_sbif) 
+        FROM DETALLE_APORTE_SBIF
+        GROUP BY TO_CHAR(FECHA_TRANSACCION,'MMYYYY'), tipo_transaccion
+        ORDER BY TO_CHAR(FECHA_TRANSACCION,'MMYYYY'), tipo_transaccion ASC; 
+        
+    -- DECLARAMOS REGISTROS
+    REG_C1 C1%ROWTYPE;
+    REG_C2 C2%ROWTYPE;
+    REG_DETALLE DETALLE_APORTE_SBIF%ROWTYPE;
+    REG_RESUMEN RESUMEN_APORTE_SBIF%ROWTYPE;
+    
+    -- DECLARAMOS UNA VARIABLES PARA OBTENER EL PORCENTAJE
+    V_PTC_SBIF NUMBER(2,2) DEFAULT 0;    
+BEGIN
+    
+    :b_fecha_proceso := ADD_MONTHS(TO_DATE('&fecha'),-12);
+    
+    -- TRUNCAMOS LAS TABLAS EN TIEMPO DE EJECUCIÓN
+    EXECUTE IMMEDIATE 'TRUNCATE TABLE DETALLE_APORTE_SBIF';
+    EXECUTE IMMEDIATE 'TRUNCATE TABLE RESUMEN_APORTE_SBIF';
+    COMMIT;
+    
+    FOR REG_C1 IN C1(TO_DATE(:b_fecha_proceso))
+    LOOP
+        BEGIN
+        
+            -- Cálculos
+            REG_DETALLE.NUMRUN := reg_c1.numrun; 
+            REG_DETALLE.DVRUN := REG_C1.DVRUN; 
+            REG_DETALLE.NRO_TARJETA := REG_C1.NRO_TARJETA; 
+            REG_DETALLE.NRO_TRANSACCION := REG_C1.NRO_TRANSACCION; 
+            REG_DETALLE.FECHA_TRANSACCION :=REG_C1.FECHA_TRANSACCION; 
+            REG_DETALLE.TIPO_TRANSACCION := REG_C1.NOMBRE_TPTRAN_TARJETA; 
+            REG_DETALLE.MONTO_TRANSACCION := REG_C1.MONTO_TOTAL_TRANSACCION; 
+            
+            -- TABLA DE TRAMOS
+            
+            -- EXTRAERMOS EL PORCENTAJE SEGÚN EL MONTO 
+            BEGIN
+                SELECT (PORC_APORTE_SBIF / 100) INTO v_ptc_sbif FROM tramo_aporte_sbif 
+                WHERE REG_DETALLE.MONTO_TRANSACCION BETWEEN TRAMO_INF_AV_SAV AND TRAMO_SUP_AV_sAV;
+            -- EN CASO DE NO EXISTIR PORCENTAJE PARA DICHO MONTO 
+            -- PORCENTAJE QUEDA EN 0
+            EXCEPTION
+                WHEN OTHERS THEN
+                    NULL;
+            END;
+            
+            -- CÁLCULAMOS EL SBIF SEGÚN EL MONTO
+            REG_DETALLE.APORTE_SBIF := ROUND(REG_DETALLE.MONTO_TRANSACCION * v_ptc_sbif,0);
+            
+            -- Objetivo
+            INSERT INTO DETALLE_APORTE_SBIF VALUES REG_DETALLE;
+            COMMIT;
+        
+        EXCEPTION
+            WHEN OTHERS THEN
+                DBMS_OUTPUT.PUT_LINE('Error en el cursor 1' || SQLERRM);
+        END;
+    END LOOP;
+    
+    -- 2DA PARTE
+    FOR REG_C2 IN C2 
+    LOOP 
+        BEGIN
+            
+            -- Cálculos
+            REG_RESUMEN := REG_C2;
+            
+            -- Objetivo
+            INSERT INTO RESUMEN_APORTE_SBIF VALUES REG_RESUMEN;
+            COMMIT;
+            
+        EXCEPTION
+            WHEN OTHERS THEN 
+                DBMS_OUTPUT.PUT_LINE('ERROR CON EL 2DO CURSOR ' || SQLERRM);
+        END;
+    END LOOP;
+    
 END;
 
