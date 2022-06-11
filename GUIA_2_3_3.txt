@@ -16,7 +16,6 @@ CREATE OR REPLACE TYPE TIPO_PUNTOS_EXTRA IS VARRAY(3) OF NUMBER NOT NULL;
 -- CREAMOS UNA VARIABLE BIND PARA GESTIONAR LA FECHA DE PROCESO
 VARIABLE b_fecha_proceso VARCHAR2(10);
 
-SELECT * FROM CLIENTE WHERE NUMRUN = 6889505;
 
 -- OBJETIVO POBLAR LA TABLA DETALLE_PUNTOS_TARJETA_CATB
 DECLARE
@@ -61,8 +60,6 @@ DECLARE
     
     T_PUNTOS_EXTRA TIPO_PUNTOS_EXTRA DEFAULT TIPO_PUNTOS_EXTRA(300,550,700);
     
-    -- VARIABLES 
-    v_monto_anual number;
 BEGIN
     
 
@@ -108,24 +105,17 @@ BEGIN
                 -- VERIFICACIÓN
                 -- Dueñas de casa y pensionados o de tercera edad.
                 IF REG_C1.COD_TIPO_CLIENTE IN(30,40) THEN
-                    
-                    -- RESCATAR EL MONTO TOTAL ANUAL
-                    SELECT SUM(monto_transaccion) INTO v_monto_anual
-                    FROM transaccion_tarjeta_cliente 
-                    WHERE nro_tarjeta = REG_DETALLE_CATB.NRO_TARJETA 
-                    AND TO_CHAR(FECHA_TRANSACCION,'YYYY') = TO_NUMBER(TO_CHAR(TO_DATE(:b_fecha_proceso),'YYYY'));
-                    
-                    DBMS_OUTPUT.PUT_LINE(REG_DETALLE_CATB.NRO_TARJETA || ' ' || V_MONTO_ANUAL);
-                    
-                    IF  v_monto_anual between 500000 AND 700000 THEN
+                
+                    IF  REG_C1.monto_transaccion between 500000 AND 700000 THEN
                         REG_DETALLE_CATB.PUNTOS_ALLTHEBEST := REG_DETALLE_CATB.PUNTOS_ALLTHEBEST  + TRUNC(REG_DETALLE_CATB.MONTO_TRANSACCION / 100000) * t_puntos_EXTRA(1);
-                    ELSIF v_monto_anual between 700001 AND 900000 THEN
+                    ELSIF REG_C1.monto_transaccion between 700001 AND 900000 THEN
                         REG_DETALLE_CATB.PUNTOS_ALLTHEBEST := REG_DETALLE_CATB.PUNTOS_ALLTHEBEST  + TRUNC(REG_DETALLE_CATB.MONTO_TRANSACCION / 100000) * t_puntos_EXTRA(2);
-                    ELSIF v_monto_anual > 900000 THEN
+                    ELSIF REG_C1.monto_transaccion > 900000 THEN
                         REG_DETALLE_CATB.PUNTOS_ALLTHEBEST := REG_DETALLE_CATB.PUNTOS_ALLTHEBEST  + TRUNC(REG_DETALLE_CATB.MONTO_TRANSACCION / 100000) * t_puntos_EXTRA(3);
                     END IF;
                 
                 END IF; 
+                
             END IF;    
             
             -- OBJETIVO POBLAR LA TABLA DETALLE_PUNTOS_TARJETA_CATB
@@ -200,16 +190,4 @@ BEGIN
     
 
 END;
-
-
-
-        SELECT TO_CHAR(FECHA_TRANSACCION,'MM') AS "mes"
-        FROM detalle_puntos_tarjeta_catb
-        GROUP BY TO_CHAR(FECHA_TRANSACCION,'MM');
-
-        SELECT SUM(MONTO_TRANSACCION) AS "monto", TIPO_TRANSACCION, PUNTOS_ALLTHEBEST
-        FROM DETALLE_PUNTOS_TARJETA_CATB
-        GROUP BY TO_CHAR(FECHA_TRANSACCION, 'MM/YYYY'), TIPO_TRANSACCION, PUNTOS_ALLTHEBEST
-        HAVING TO_CHAR(FECHA_TRANSACCION, 'MM/YYYY') = TO_CHAR(TO_dATE('10/10/2021'),'MM/YYYY');
-
 
