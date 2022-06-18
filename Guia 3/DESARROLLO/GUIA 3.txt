@@ -199,9 +199,131 @@ END;
 -- CASO 3
 ----------------------------------------------
 
-
-
 -- CREAMOS UN RESPALDO DE LA TABLA CUOTA_CREDITO_CLIENTE
 
 DROP TABLE CUOTA_BK;
 CREATE TABLE CUOTA_BK AS SELECT * FROM CUOTA_CREDITO_CLIENTE;
+COMMIT;
+
+CREATE OR REPLACE PROCEDURE SP_UPDATE_CUOTA(v_nro_solicitud in number,v_nro_cliente IN NUMBER,v_cantidad IN NUMBER) IS
+
+    -- REGISTROS
+    reg_resumen CUOTA_BK%ROWTYPE;
+    
+    -- VARIABLE QUE ITERA POR CADA PROCESO
+    v_contador NUMBER(2) DEFAULT 0;
+    
+    -- VARIABLE QUE GUARDA EL PORCENTAJE SEGÚN SU TARJETA DE CRÉDITO
+    v_pct_cred NUMBER(8,8);
+    
+BEGIN 
+        
+        -- ASIGNAMOS LA CANTIDAD DE CUOTAS A POSTERGAR
+        FOR x IN 1..v_cantidad
+        LOOP
+            BEGIN
+                
+                DBMS_OUTPUT.PUT_LINE(x);
+                
+                -- CÁLCULOS
+                
+                BEGIN
+                SELECT ccc.NRO_SOLIC_CREDITO, 
+                ccc.NRO_CUOTA, ccc.FECHA_VENC_CUOTA, ccc.VALOR_CUOTA, 
+                ccc.FECHA_PAGO_CUOTA, ccc.MONTO_PAGADO, ccc.SALDO_POR_PAGAR, ccc.COD_FORMA_PAGO 
+                INTO REG_RESUMEN
+                FROM CUOTA_BK CCC
+                INNER JOIN CREDITO_CLIENTE CC
+                ON CC.NRO_SOLIC_CREDITO = CCC.NRO_SOLIC_CREDITO 
+                WHERE CC.NRO_SOLIC_CREDITO = v_nro_solicitud 
+                AND CC.NRO_CLIENTE = v_nro_cliente
+                ORDER BY NRO_CUOTA DESC
+                FETCH FIRST 1 ROWS ONLY;
+                
+                EXCEPTION WHEN OTHERS THEN DBMS_OUTPUT.PUT_LINE('SE CAE AQUI' || sqlerrm);
+                END;
+                -- VALIDAMOS SI ES LA PRIMERA CUOTA EN LA ITERACION
+                IF   x = 1 THEN
+                
+                    SELECT CASE cod_credito 
+                                    WHEN 1 THEN 0.005
+                                    WHEN 2 THEN 0.01
+                                    WHEN 3 THEN 0.02
+                                    END 
+                                    INTO v_pct_cred 
+                    FROM CREDITO_CLIENTE 
+                    WHERE NRO_CLIENTE = v_nro_cliente
+                    AND nro_solic_credito = v_nro_solicitud;
+                    
+                    -- SI ES 1 AGREGAMOS EL INTERÉS AL VALOR CUOTA
+                    reg_resumen.valor_cuota := reg_resumen.valor_cuota + ROUND(reg_resumen.valor_cuota * v_pct_cred,0);
+                    
+                END IF;
+                
+                
+                -- NRO CUOTA
+                reg_resumen.NRO_CUOTA := reg_resumen.NRO_CUOTA + 1;
+                
+                -- FECHA DE VENCIMIENTO DE LA CUOTA 
+                REG_RESUMEN.FECHA_VENC_CUOTA := ADD_MONTHS(REG_RESUMEN.FECHA_VENC_CUOTA,1);
+                
+                -- FECHA PAGO CUOTA
+                REG_RESUMEN.FECHA_PAGO_CUOTA := NULL;
+                
+                -- MONTO PAGADO
+                REG_RESUMEN.MONTO_PAGADO := NULL; 
+                
+                -- SALDO POR PAGAR 
+                REG_RESUMEN.SALDO_POR_PAGAR := NULL;
+                
+                --COD FORMA PAGO
+                REG_RESUMEN.COD_FORMA_PAGO  := NULL;
+                
+                -- OBJETIVO
+                
+                --dbms_output.put_line(REG_RESUMEN.NRO_CUOTA);
+                INSERT INTO cuota_bk VALUES REG_RESUMEN;
+                COMMIT;
+                
+            EXCEPTION
+                WHEN OTHERS THEN
+                    DBMS_OUTPUT.PUT_LINE('Error en el cursor =( : ' || SQLERRM);
+            END;
+        END LOOP;
+        
+EXCEPTION
+    WHEN OTHERS THEN
+        DBMS_OUTPUT.PUT_LINE('Error =( : ' || SQLERRM);
+END SP_UPDATE_CUOTA;
+/
+
+
+BEGIN
+    -- VALORES 3400 , 67 , 1
+    SP_UPDATE_CUOTA(3004, 67, 1);
+    -- VALORES 2400 , 13 , 1
+    SP_UPDATE_CUOTA(2004, 13, 1);
+    -- VALORES 2001 , 5 , 2
+    SP_UPDATE_CUOTA(2001, 5, 2);
+
+END;
+/
+
+
+SELECT * FROM CUOTA_BK
+WHERE nro_solic_credito = 2001
+ORDER BY NRO_CUOTA DESC
+FETCH FIRST 2 ROWS ONLY;
+
+
+
+SELECT * FROM CUOTA_BK
+WHERE nro_solic_credito = 2004
+ORDER BY NRO_CUOTA DESC
+FETCH FIRST 1 ROWS ONLY;
+
+
+SELECT * FROM CUOTA_BK
+WHERE nro_solic_credito = 3004
+ORDER BY NRO_CUOTA DESC
+FETCH FIRST 1 ROWS ONLY;
