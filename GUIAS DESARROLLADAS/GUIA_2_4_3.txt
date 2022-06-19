@@ -1,0 +1,159 @@
+
+
+-- CASO 2 
+-- OBJETIVO POBLAR LA TABLA 
+-- PRODUCTO_INVERSION_SOCIO y ERROR_PROCESO
+
+
+-- VARIABLES 
+-- UF y IPC 
+VARIABLE b_uf NUMBER;
+VARIABLE b_ipc NUMBER;
+VARIABLE b_fecha_proceso VARCHAR2(10);
+
+EXECUTE :b_fecha_proceso := '10/10/2021';
+
+PRINT b_ipc;
+
+-- ACTIVAMOS LA SALIDA DE DBMS
+SET SERVEROUTPUT ON;
+
+-- CREAMOS UNA TABLA DE RESPALDO PARA EJECUTAR LOS PROCESOS DE ACTUALIZACIÓN
+CREATE TABLE producto_inversion_socio_bk 
+AS SELECT * FROM producto_inversion_socio ORDER BY nro_socio ASC ;
+
+-------------------------------------------------------------------------------------------------
+-- ASIGNAMOS CUALQUIER FECHA CON EL AÑO 2021
+-- ASIGNAMOS 101299 COMO VALOR DE LAS 5 UF 
+-- ASIGNAMOS  2.73 COMO VALOR DE IPC ANUAL
+-------------------------------------------------------------------------------------------------
+
+DECLARE
+    -- DECLARAMOS UN CURSOR
+    CURSOR c1 IS
+        SELECT * FROM producto_inversion_socio
+        ORDER BY nro_socio ASC;
+
+    -- REGISTROS
+    reg_c1 c1%rowtype;
+    reg_error error_proceso%rowtype;
+    reg_resumen producto_inversion_socio_bk%rowtype;
+    
+    -- VARIABLES
+    v_cantidad NUMBER(2);
+    v_valida_monto producto_inversion_socio.monto_total_ahorrado%TYPE;
+    v_monto_anual producto_inversion_socio.monto_total_ahorrado%TYPE;
+    
+    -- DECLARAR EXCEPTION
+    ex_limite_superado EXCEPTION;
+
+BEGIN
+    
+    -- ASIGNAMOS UNA FECHA DE PROCESO
+    :b_fecha_proceso := TO_DATE('&FECHA_PROCESO');
+    -- ASIGNAMOS VALOR PARA LAS 5 UF
+    :b_uf := &valor5_uf;
+    -- ASIGNAMOS VALOR IPC ANUAL
+    :b_ipc := &valor_ipc_anual;
+    
+    -- TRUNCAR EN TIEMPO DE EJECUCIÓN
+    EXECUTE IMMEDIATE 'TRUNCATE TABLE ERROR_PROCESO';
+    -- RESETEAR SECUENCIA EN TIEMPO DE EJECUCIÓN
+    EXECUTE IMMEDIATE 'DROP SEQUENCE SEQ_ERROR';
+    EXECUTE IMMEDIATE 'CREATE SEQUENCE SEQ_ERROR';
+    COMMIT;
+    
+    FOR reg_c1 IN c1
+    LOOP
+        BEGIN
+            
+            -- Cálculos
+            
+            -- CANTIDAD DE PRODUCTOS DE INVERSIÓN
+            SELECT COUNT(cod_prod_inv) INTO v_cantidad 
+            FROM producto_inversion_socio WHERE nro_socio = reg_c1.nro_socio;
+
+
+            -- SOCIO POSEE 3 PRODUCTOS DE INVERSIÓN 3%
+            
+            -- SOCIO POSEE 5 PRODUCTOS DE INVERSIÓN 5%
+            
+            
+            -- MONTO POR CANTIDAD DE PRODUCTOS DE INVERSIÓN           
+            v_valida_monto  :=   CASE v_cantidad 
+                                                        WHEN 2 THEN round(reg_c1.monto_total_ahorrado * 0.02, 0) 
+                                                        WHEN 3 THEN round(reg_c1.monto_total_ahorrado * 0.03, 0)
+                                                        WHEN 4 THEN round(reg_c1.monto_total_ahorrado * 0.04, 0)
+                                                        WHEN 5 THEN round(reg_c1.monto_total_ahorrado * 0.05, 0)
+                                                        WHEN 6 THEN round(reg_c1.monto_total_ahorrado * 0.06, 0)
+                                                        WHEN 7 THEN round(reg_c1.monto_total_ahorrado * 0.07, 0)
+                                                        WHEN 8 THEN round(reg_c1.monto_total_ahorrado * 0.08, 0)
+                                                        ELSE 
+                                                            0
+                                                    END;
+
+            -- MONTO CON EL IPC PARA TODOS LOS SOCIOS
+            v_valida_monto := v_valida_monto  + round(reg_c1.monto_total_ahorrado * (:b_ipc/100),0);
+            
+            -- SOCIOS QUE POSEEN UN PRODUCTO DE INVERSION Y QUE DURANTE UN AÑO ABONARON MÁS DE 1.000.000
+            -- SE APLICARÁ UN 1% ADICIONAL, SE CONSIDERA SOLO LOS ABONOS QUE SE REALIZO DURANTE EL AÑO EN CURSO
+            
+            BEGIN            
+                SELECT SUM(monto_total_ahorrado) INTO v_monto_anual
+                FROM producto_inversion_socio 
+                --GROUP BY NRO_SOCIO;
+                WHERE nro_socio = reg_c1.nro_socio 
+                AND to_char(fecha_solic_prod,'YYYY') = to_char(TO_DATE(:b_fecha_proceso),'YYYY');
+                
+                IF v_monto_anual > 1000000 THEN
+                    v_valida_monto := v_valida_monto  + round(reg_c1.monto_total_ahorrado * 0.01);
+                END IF;
+            EXCEPTION
+                WHEN OTHERS THEN
+                    NULL;
+            END;
+            
+            -- TOPE MÁXIMO NO DEBE SOBREPASAR LAS 5 UF 
+            
+            BEGIN
+                IF v_valida_monto > :b_uf THEN
+                    -- GENERAR ERROR DE LÍMITE
+                    dbms_output.put_line('ES MAYOR A LAS 5 UF');
+                    RAISE ex_limite_superado;
+                ELSE 
+                    -- SEGUIR PROCESO NORMAL
+                    dbms_output.put_line('ES MENOR A LAS 5 UF');
+                END IF;
+            EXCEPTION
+                WHEN ex_limite_superado THEN
+                    -- REGISTRAMOS EN LA TABLA ERRORES 
+                    reg_error.correl_error := seq_error.NEXTVAL;
+                    reg_error.sentencia_error := 'Tope reajuste de 5 UF';
+                    reg_error.descrip_error := 'Socio N° : ' || reg_c1.nro_socio || '. ' || 'Solicitud producto N° : ' || reg_c1.nro_solic_prod || '. Valor reajuste calculado: ' || v_valida_monto ;
+                    INSERT INTO error_proceso VALUES reg_error;
+                    -- REAJUSTAR VALOR A 5 UF
+                    v_valida_monto := :b_uf;
+            END;
+            
+            -- Objetivo
+            /*
+            DBMS_OUTPUT.PUT_LINE('VALOR VALIDADO ' || V_VALIDA_MONTO);
+            DBMS_OUTPUT.PUT_LINE('MONTO FINAL : ' || (reg_c1.MONTO_TOTAL_AHORRADO + V_VALIDA_MONTO));
+            */
+            
+            
+            UPDATE producto_inversion_socio_bk 
+            SET monto_total_ahorrado = (reg_c1.monto_total_ahorrado + v_valida_monto)
+            WHERE nro_solic_prod = reg_c1.nro_solic_prod;
+            
+            COMMIT;
+            
+        EXCEPTION
+            WHEN OTHERS THEN 
+                dbms_output.put_line('Error en el cursor' || sqlerrm);
+        END;
+    END LOOP;
+    
+END;
+
+

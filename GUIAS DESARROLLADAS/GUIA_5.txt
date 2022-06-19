@@ -1,0 +1,340 @@
+------------------------------
+-- CASO 1
+------------------------------
+
+
+-- ACTIVAMOS LA SALIDA DE DBMS
+SET SERVEROUTPUT ON;
+
+-- Crear el directorio de las fotos de los clientes 
+
+CREATE OR REPLACE DIRECTORY fotos_clientes AS 'C:\Imagenes\fotos_clientes';
+
+-- Dar permisos desde el usuario Sys a nuestra conexión
+-- GRANT READ, WRITE ON DIRECTORY fotos_clientes TO GUIA5;
+
+
+-------------------------------------------------
+
+DECLARE
+    -- Variables para almacenar y cargar las fotos
+    v_blob BLOB;
+    v_bfile BFILE;
+    
+    -- Identificación de la foto
+    v_nombre VARCHAR2(100);
+
+    -- Directorio donde se encuentra
+    v_directorio VARCHAR2(80);
+    
+    -- Cursor que recorre las fotos de los Clientes
+    CURSOR cur_fotos IS 
+    SELECT nro_cliente, foto 
+    FROM cliente 
+    FOR UPDATE OF foto;
+
+BEGIN 
+    -- Recorrer el cursor y almacenar las fotos
+    FOR X IN cur_fotos 
+    LOOP
+        BEGIN 
+        
+            --Directorio y nombre del archivo
+            v_directorio := 'FOTOS_CLIENTES';
+            v_nombre := X.nro_cliente || '.JPG';
+            v_blob :=  X.foto;
+            
+            -- Proceso de actualización de fotos
+            v_bfile := bfilename(v_directorio, v_nombre);
+            
+            -- blob, bfile
+            dbms_lob.OPEN(v_bfile, dbms_lob.lob_readonly);
+            dbms_lob.loadfromfile(v_blob, v_bfile, dbms_lob.getlength(v_bfile));
+            dbms_lob.CLOSE(v_bfile);
+
+            dbms_output.put_line(v_nombre || ' ACTUALIZADO!');
+
+        EXCEPTION 
+            WHEN OTHERS THEN 
+                dbms_output.put_line('El cliente NRO. ' || X.nro_cliente ||' no tiene foto.');
+        END;
+    END LOOP;
+EXCEPTION
+    WHEN OTHERS THEN 
+        dbms_output.put_line('Error en el bloque anónimo.');
+END;
+/
+
+
+----------------------------------------------
+-- CASO 2
+----------------------------------------------
+
+-- VARIABLE BIND 
+VARIABLE b_fecha_proceso VARCHAR2(10);
+
+
+DECLARE
+    -- CURSOR 
+    CURSOR c1 IS 
+        SELECT nro_cliente,
+        to_char(numrun,'999G999G999') || '-'|| dvrun AS "rut", 
+        pnombre || ' ' || snombre || ' ' || appaterno || ' ' || apmaterno AS "nombre",
+        cod_tipo_cliente
+        FROM cliente
+        ORDER BY nro_cliente ASC;
+    
+    -- REGISTRO 
+    reg_cliente cliente_todosuma%rowtype;
+
+    -- VARRAY
+    TYPE tipo_pesos IS VARRAY(4) OF NUMBER(4) NOT NULL;
+
+    v_arreglo_pesos tipo_pesos DEFAULT tipo_pesos(1200,300,550,700); 
+
+BEGIN
+
+    -- ASIGNAMOS FECHA
+    :b_fecha_proceso := add_months(TO_DATE('01/01/2022'),-12);
+
+    -- TRUNCAR TABLA EN TIEMPO DE EJECUCIÓN
+    EXECUTE IMMEDIATE 'TRUNCATE TABLE CLIENTE_TODOSUMA';
+    COMMIT;
+
+    FOR X IN c1 
+    LOOP
+        BEGIN
+
+            -- CÁLCULOS
+
+            reg_cliente.nro_cliente := X.nro_cliente;
+            reg_cliente.run_cliente := X."rut";
+            reg_cliente.nombre_cliente := X."nombre";
+            
+            SELECT nombre_tipo_cliente 
+            INTO reg_cliente.tipo_cliente
+            FROM tipo_cliente
+            WHERE cod_tipo_cliente = X.cod_tipo_cliente;
+
+            SELECT nvl(SUM(monto_solicitado),0) 
+            INTO reg_cliente.monto_solic_creditos 
+            FROM credito_cliente 
+            WHERE nro_cliente = X.nro_cliente
+            AND to_char(fecha_solic_cred,'YYYY') = to_char(TO_DATE(:b_fecha_proceso),'YYYY') ;
+           
+
+            -- PESOS NORMALES
+            reg_cliente.monto_pesos_todosuma := TRUNC(reg_cliente.monto_solic_creditos / 100000) * v_arreglo_pesos(1);
+
+            -- PESOS EXTRA
+            IF reg_cliente.monto_solic_creditos BETWEEN 1000001 AND 3000000 THEN
+                reg_cliente.monto_pesos_todosuma := reg_cliente.monto_pesos_todosuma + TRUNC(reg_cliente.monto_solic_creditos / 100000) * v_arreglo_pesos(2);
+            ELSIF reg_cliente.monto_solic_creditos BETWEEN 3000001 AND 6000000 THEN
+                reg_cliente.monto_pesos_todosuma := reg_cliente.monto_pesos_todosuma + TRUNC(reg_cliente.monto_solic_creditos / 100000) * v_arreglo_pesos(3);
+            ELSIF reg_cliente.monto_solic_creditos > 6000000 THEN
+                reg_cliente.monto_pesos_todosuma := reg_cliente.monto_pesos_todosuma + TRUNC(reg_cliente.monto_solic_creditos / 100000) * v_arreglo_pesos(4);
+            END IF;
+            
+
+            --OBJETIVO
+
+            INSERT INTO cliente_todosuma VALUES reg_cliente;
+
+        EXCEPTION
+            WHEN OTHERS THEN
+                dbms_output.put_line('Error en el cursor.' || sqlerrm);
+        END;
+    END LOOP;
+END;
+/
+
+
+----------------------------------------
+-- CASO 3
+----------------------------------------
+
+
+-- CASO 3
+----------------------------------------------
+
+-- CREAMOS UN RESPALDO DE LA TABLA CUOTA_CREDITO_CLIENTE
+
+DROP TABLE cuota_bk;
+CREATE TABLE cuota_bk AS SELECT * FROM cuota_credito_cliente;
+COMMIT;
+
+
+CREATE OR REPLACE PROCEDURE sp_update_cuota(v_nro_solicitud IN NUMBER,v_nro_cliente IN NUMBER,v_cantidad IN NUMBER) IS
+
+    -- REGISTROS
+    reg_resumen cuota_bk%rowtype;
+    
+    -- VARIABLE QUE ITERA POR CADA PROCESO
+    v_contador NUMBER(2) DEFAULT 0;
+    
+    -- VARIABLE QUE GUARDA EL PORCENTAJE SEGÚN SU TARJETA DE CRÉDITO
+    v_pct_cred NUMBER(8,8);
+    
+BEGIN 
+        
+        -- ASIGNAMOS LA CANTIDAD DE CUOTAS A POSTERGAR
+        FOR X IN 1..v_cantidad
+        LOOP
+            BEGIN
+                
+                dbms_output.put_line(X);
+                
+                -- CÁLCULOS
+                
+                BEGIN
+                SELECT ccc.nro_solic_credito, 
+                ccc.nro_cuota, ccc.fecha_venc_cuota, ccc.valor_cuota, 
+                ccc.fecha_pago_cuota, ccc.monto_pagado, ccc.saldo_por_pagar, ccc.cod_forma_pago 
+                INTO reg_resumen
+                FROM cuota_bk ccc
+                INNER JOIN credito_cliente cc
+                ON cc.nro_solic_credito = ccc.nro_solic_credito 
+                WHERE cc.nro_solic_credito = v_nro_solicitud 
+                AND cc.nro_cliente = v_nro_cliente
+                ORDER BY nro_cuota DESC
+                FETCH FIRST 1 ROWS ONLY;
+                
+                EXCEPTION WHEN OTHERS THEN dbms_output.put_line('SE CAE AQUI' || sqlerrm);
+                END;
+                -- VALIDAMOS SI ES LA PRIMERA CUOTA EN LA ITERACION
+                IF   X = 1 THEN
+                
+                    SELECT CASE cod_credito 
+                                    WHEN 1 THEN 0.005
+                                    WHEN 2 THEN 0.01
+                                    WHEN 3 THEN 0.02
+                                    END 
+                                    INTO v_pct_cred 
+                    FROM credito_cliente 
+                    WHERE nro_cliente = v_nro_cliente
+                    AND nro_solic_credito = v_nro_solicitud;
+                    
+                    -- SI ES 1 AGREGAMOS EL INTERÉS AL VALOR CUOTA
+                    reg_resumen.valor_cuota := reg_resumen.valor_cuota + round(reg_resumen.valor_cuota * v_pct_cred,0);
+                    
+                END IF;
+                
+                
+                -- NRO CUOTA
+                reg_resumen.nro_cuota := reg_resumen.nro_cuota + 1;
+                
+                -- FECHA DE VENCIMIENTO DE LA CUOTA 
+                reg_resumen.fecha_venc_cuota := add_months(reg_resumen.fecha_venc_cuota,1);
+                
+                -- FECHA PAGO CUOTA
+                reg_resumen.fecha_pago_cuota := NULL;
+                
+                -- MONTO PAGADO
+                reg_resumen.monto_pagado := NULL; 
+                
+                -- SALDO POR PAGAR 
+                reg_resumen.saldo_por_pagar := NULL;
+                
+                --COD FORMA PAGO
+                reg_resumen.cod_forma_pago  := NULL;
+                
+                -- OBJETIVO
+                
+                --dbms_output.put_line(REG_RESUMEN.NRO_CUOTA);
+                INSERT INTO cuota_bk VALUES reg_resumen;
+                COMMIT;
+                
+            EXCEPTION
+                WHEN OTHERS THEN
+                    dbms_output.put_line('Error en el cursor =( : ' || sqlerrm);
+            END;
+        END LOOP;
+        
+EXCEPTION
+    WHEN OTHERS THEN
+        dbms_output.put_line('Error =( : ' || sqlerrm);
+END sp_update_cuota;
+/
+
+
+BEGIN
+    -- VALORES 3400 , 67 , 1
+    sp_update_cuota(3004, 67, 1);
+   
+    -- VALORES 2400 , 13 , 1
+    sp_update_cuota(2004, 13, 1);
+   
+    -- VALORES 2001 , 5 , 2
+    sp_update_cuota(2001, 5, 2);
+   
+    -- VALORES 2002 , 6 , 1
+    sp_update_cuota(2002, 6, 1);
+
+    -- VALORES 2006 , 26 , 1 
+    sp_update_cuota(2006, 26, 1);
+    
+    -- VALORES 2007 , 27 , 1
+    sp_update_cuota(2007, 27, 1);
+    
+    -- VALORES 3008 , 84 , 1
+    sp_update_cuota(3008, 84, 1);
+    
+    -- VALORES 3003 , 66, 1
+    sp_update_cuota(3003, 66, 1);
+END;
+/
+
+
+SELECT * FROM cuota_bk
+WHERE nro_solic_credito = 2001
+ORDER BY nro_cuota DESC
+FETCH FIRST 2 ROWS ONLY;
+
+
+
+SELECT * FROM cuota_bk
+WHERE nro_solic_credito = 2004
+ORDER BY nro_cuota DESC
+FETCH FIRST 1 ROWS ONLY;
+
+
+SELECT * FROM cuota_bk
+WHERE nro_solic_credito = 3004
+ORDER BY nro_cuota DESC
+FETCH FIRST 1 ROWS ONLY;
+
+
+
+
+SELECT * FROM cuota_bk
+WHERE nro_solic_credito = 2002
+ORDER BY nro_cuota DESC
+FETCH FIRST 2 ROWS ONLY;
+
+
+
+SELECT * FROM cuota_bk
+WHERE nro_solic_credito = 2006
+ORDER BY nro_cuota DESC
+FETCH FIRST 2 ROWS ONLY;
+
+
+
+SELECT * FROM cuota_bk
+WHERE nro_solic_credito = 2007
+ORDER BY nro_cuota DESC
+FETCH FIRST 2 ROWS ONLY;
+
+
+
+SELECT * FROM cuota_bk
+WHERE nro_solic_credito = 3008
+ORDER BY nro_cuota DESC
+FETCH FIRST 2 ROWS ONLY;
+
+
+
+SELECT * FROM cuota_bk
+WHERE nro_solic_credito = 3003
+ORDER BY nro_cuota DESC
+FETCH FIRST 2 ROWS ONLY;
