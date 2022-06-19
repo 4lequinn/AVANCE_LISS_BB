@@ -1,3 +1,89 @@
+
+-------------------------------
+-- CASO 1
+-------------------------------
+
+--ACTIVAMOS LA SALIDA DE DBMS
+SET SERVEROUTPUT ON; 
+SET AUTOPRINT ON;
+
+VARIABLE b_fecha_proceso VARCHAR2(10);
+
+EXECUTE :b_fecha_proceso := '10/10/2020';
+
+DECLARE 
+    -- CURSOR
+    CURSOR C1 IS 
+        SELECT ID_EMP, NUMRUN_EMP, DVRUN_EMP,
+            PNOMBRE_EMP|| ' '|| SNOMBRE_EMP || ' ' || APPATERNO_EMP || ' ' || APMATERNO_EMP AS "nombre",
+            id_comuna, SUELDO_BASE
+        FROM EMPLEADO;
+
+    -- REGISTRO
+    REG_PROY PROY_MOVILIZACION%ROWTYPE;
+    REG_C1 C1%ROWTYPE;
+BEGIN
+
+    -- TRUNCAR LA TABLA EN TIEMPO DE EJECUCIÓN
+    EXECUTE IMMEDIATE 'TRUNCATE TABLE PROY_MOVILIZACION';
+    COMMIT;
+    
+    FOR REG_C1 IN C1 
+    LOOP
+        BEGIN
+            -- CÁLCULOS
+            REG_PROY.ANNO_PROCESO := TO_CHAR(TO_DATE(:b_fecha_proceso),'YYYY');
+            REG_PROY.ID_EMP := REG_C1.ID_EMP;
+            REG_PROY.NUMRUN_EMP := REG_C1.NUMRUN_EMP;
+            REG_PROY.DVRUN_EMP := REG_C1.DVRUN_EMP;
+            REG_PROY.NOMBRE_EMPLEADO := REG_C1."nombre";
+
+            SELECT nombre_comuna
+            INTO  REG_PROY.NOMBRE_COMUNA
+            FROM COMUNA
+            WHERE ID_COMUNA = REG_C1.ID_COMUNA;
+           
+            REG_PROY.SUELDO_BASE := REG_C1.SUELDO_BASE;
+            
+            REG_PROY.VALOR_MOVIL_EXTRA := 0;
+
+                    /*
+            María Pinto 117
+            Curacaví 118
+            Talagante 119
+            El Monte 120
+            Buin 121
+            */
+            IF REG_C1.id_comuna = 117 THEN
+                REG_PROY.VALOR_MOVIL_EXTRA := 20000;
+            ELSIF REG_C1.id_comuna = 118 THEN
+                REG_PROY.VALOR_MOVIL_EXTRA := 25000;
+            ELSIF REG_C1.id_comuna = 119 THEN
+                REG_PROY.VALOR_MOVIL_EXTRA := 30000;
+            ELSIF REG_C1.id_comuna = 120 THEN
+                REG_PROY.VALOR_MOVIL_EXTRA := 35000;
+            ELSIF REG_C1.id_comuna = 121 THEN
+                REG_PROY.VALOR_MOVIL_EXTRA := 40000;
+            END IF;
+
+              -- PORCENTAJE
+            REG_PROY.PORC_MOVIL_NORMAL := TRUNC(REG_PROY.SUELDO_BASE / 100000) ;
+            REG_PROY.VALOR_MOVIL_NORMAL := ROUND(REG_PROY.SUELDO_BASE * (REG_PROY.PORC_MOVIL_NORMAL / 100),0); 
+            REG_PROY.VALOR_TOTAL_MOVIL := REG_PROY.VALOR_MOVIL_NORMAL + REG_PROY.VALOR_MOVIL_EXTRA;
+            
+            --OBJETIVO
+            
+            INSERT INTO PROY_MOVILIZACION VALUES REG_PROY;
+            COMMIT;
+        EXCEPTION
+            WHEN OTHERS THEN
+                DBMS_OUTPUT.PUT_LINE('Error en el cursor' || SQLERRM);
+        END;
+    END LOOP; 
+
+END;
+/
+
 ---------------------------------------------------------------
 -- CASO 2
 ---------------------------------------------------------------
