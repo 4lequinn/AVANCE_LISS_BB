@@ -358,3 +358,185 @@ EXCEPTION
     WHEN OTHERS THEN
         DBMS_OUTPUT.PUT_LINE('Error en el bloque anónimo.' || SQLERRM);
 END;
+/
+
+
+
+
+
+------------------------------------
+-- CASO 5
+------------------------------------
+
+
+
+-- SIMULAR FECHA PROCESO 01/01/2023
+
+CREATE SEQUENCE SEQ_INFO2 START WITH 10 INCREMENT BY 3;
+CREATE SEQUENCE SEQ_INFO;
+CREATE SEQUENCE SEQ_INFO3 START WITH 900 INCREMENT BY -10 MAXVALUE 900;
+
+
+DECLARE
+    -- DEFINIMOS EL CURSOR
+    CURSOR c1 IS
+        SELECT ID_EMP,
+            TO_CHAR(NUMRUN_EMP,'999G999G999') || '-' ||DVRUN_EMP AS "rut",
+            PNOMBRE_EMP || ' ' || SNOMBRE_EMP || ' ' || 
+            APPATERNO_EMP || ' ' || APMATERNO_EMP as "nombre", 
+            FECHA_CONTRATO, SUELDO_BASE, ID_COMUNA,
+            COD_AFP, COD_TIPO_SAL
+        FROM EMPLEADO;
+
+    -- REGISTROS
+    REG_C1 C1%ROWTYPE;
+    REG_INFO INFO_SII%ROWTYPE;
+
+    -- PORCENTAJE
+    v_pct NUMBER(5,3);
+    v_pct_afp NUMBER(5,3);
+    v_pct_sal NUMBER(5,3);
+
+    -- CANTIDAD DE CAMIONES ARRENDADOS
+    v_cantidad_arr NUMBER(2);
+
+
+BEGIN
+
+    :b_fecha_proceso := ADD_MONTHS(TO_DATE('&FECHA_PROCESO'),-12);
+
+    -- TRUNCAR EN TIEMPO DE EJECUCIÓN
+    EXECUTE IMMEDIATE 'TRUNCATE TABLE INFO_SII';
+
+    -- CREAR SECUENCIA Y REINICIARLA POR EJECUCIÓN
+    EXECUTE IMMEDIATE 'DROP SEQUENCE SEQ_INFO2';
+    EXECUTE IMMEDIATE 'DROP SEQUENCE SEQ_INFO';
+    EXECUTE IMMEDIATE 'DROP SEQUENCE SEQ_INFO3';
+    EXECUTE IMMEDIATE 'CREATE SEQUENCE SEQ_INFO';
+    EXECUTE IMMEDIATE 'CREATE SEQUENCE SEQ_INFO2 START WITH 10 INCREMENT BY 3';
+    EXECUTE IMMEDIATE 'CREATE SEQUENCE SEQ_INFO3 START WITH 900 INCREMENT BY -10 MAXVALUE 900';
+    COMMIT;
+
+    FOR REG_C1 IN C1
+    LOOP
+        BEGIN
+
+            -- CÁLCULOS
+            REG_INFO.ANNO_TRIBUTARIO := TO_CHAR(TO_DATE(:B_FECHA_PROCESO),'YYYY');
+            REG_INFO.ID_EMP := REG_C1.ID_EMP;
+            REG_INFO.RUN_EMPLEADO := TO_CHAR(seq_info.nextval,'09')||' '||REG_C1."rut"||SEQ_INFO2.nextval;
+            REG_INFO.NOMBRE_EMPLEADO := REG_C1."nombre";
+
+            -- OBTENEMOS LOS MESES TRABAJADOS
+            REG_INFO.MESES_TRABAJADOS := TRUNC(MOD(MONTHS_BETWEEN(TO_DATE(:b_fecha_proceso),REG_C1.FECHA_CONTRATO),12));
+            REG_INFO.ANNOS_TRABAJADOS := TRUNC(MONTHS_BETWEEN(TO_DATE(:b_fecha_proceso),REG_C1.FECHA_CONTRATO)/12);
+            REG_INFO.SUELDO_BASE_MENSUAL := REG_C1.SUELDO_BASE || SEQ_INFO3.NEXTVAL;
+            REG_INFO.SUELDO_BASE_ANUAL := REG_C1.SUELDO_BASE * 12;
+
+            -- BONO ANTIGUEDAD
+            BEGIN
+                SELECT PORCENTAJE / 100 INTO v_pct
+                FROM TRAMO_ANTIGUEDAD
+                WHERE REG_INFO.ANNOS_TRABAJADOS 
+                BETWEEN TRAMO_INF AND TRAMO_SUP 
+                AND ANNO_VIG = TO_CHAR(TO_DATE(:b_fecha_proceso),'YYYY');
+            EXCEPTION
+                WHEN NO_DATA_FOUND THEN
+                    v_pct := 0;
+            END;
+
+            REG_INFO.BONO_ANNOS_ANUAL := ROUND(reg_info.SUELDO_BASE_ANUAL * v_pct,0);
+            
+            -- MOVILIZACIÓN 12% DEL SUELDO BASE DEL EMPLEADO
+            REG_INFO.MOVILIZACION_ANUAL := ROUND(REG_INFO.SUELDO_BASE_ANUAL * 0.12,0);
+            
+            -- PAGO ADICIONAL A EMPLEADOS DE COMUNAS MÁS LEJANAS DE SANTIAGO
+
+                /*
+                María Pinto 117
+Curacaví 118
+Talagante 119
+El Monte 120
+Buin 121
+                */
+        
+            IF REG_C1.id_comuna = 117 THEN
+                REG_INFO.MOVILIZACION_ANUAL := REG_INFO.MOVILIZACION_ANUAL + round((REG_INFO.SUELDO_BASE_ANUAL * 0.2),0);
+            ELSIF REG_C1.id_comuna = 118 THEN
+                REG_INFO.MOVILIZACION_ANUAL := REG_INFO.MOVILIZACION_ANUAL + round((REG_INFO.SUELDO_BASE_ANUAL * 0.25),0);
+            ELSIF REG_C1.id_comuna = 119 THEN
+                REG_INFO.MOVILIZACION_ANUAL := REG_INFO.MOVILIZACION_ANUAL + round((REG_INFO.SUELDO_BASE_ANUAL * 0.30),0);
+            ELSIF REG_C1.id_comuna = 120 THEN
+                REG_INFO.MOVILIZACION_ANUAL := REG_INFO.MOVILIZACION_ANUAL + round((REG_INFO.SUELDO_BASE_ANUAL * 0.35),0);
+            ELSIF REG_C1.id_comuna = 121 THEN
+                REG_INFO.MOVILIZACION_ANUAL := REG_INFO.MOVILIZACION_ANUAL + round((REG_INFO.SUELDO_BASE_ANUAL * 0.40),0);
+            END IF;
+            
+
+            -- COLACIÓN
+
+            REG_INFO.COLACION_ANUAL := ROUND(REG_INFO.SUELDO_BASE_ANUAL * 0.2,0);
+            
+            -- DESCUENTOS POR AFP
+            SELECT PORC_DESCTO_AFP / 100 INTO v_pct_afp
+            FROM AFP 
+            WHERE COD_AFP = REG_C1.COD_AFP;
+
+            -- DESCUENTO POR SALUD
+            SELECT PORC_DESCTO_SALUD / 100 INTO v_pct_sal
+            FROM TIPO_SALUD
+            WHERE COD_TIPO_SAL = REG_c1.COD_TIPO_SAL;
+
+            REG_INFO.DESCTOS_LEGALES := ROUND(REG_INFO.SUELDO_BASE_ANUAL * v_pct_afp,0) + ROUND(REG_INFO.SUELDO_BASE_ANUAL * v_pct_SAL,0);
+            
+            REG_INFO.SUELDO_BRUTO_ANUAL := reg_info.SUELDO_BASE_ANUAL + REG_INFO.BONO_ANNOS_ANUAL + REG_INFO.MOVILIZACION_ANUAL + REG_INFO.COLACION_ANUAL;
+            
+                        
+            -- OBTENERMOS EL CARGO
+            BEGIN
+                SELECT 'Encargado de Arriendos',count(id_camion) 
+                into REG_INFO.CARGO, v_cantidad_arr
+                FROM EMPLEADO E
+                INNER JOIN CAMION C
+                ON E.ID_EMP = C.ID_EMP
+                WHERE E.ID_EMP = REG_INFO.ID_EMP
+                group by 'Encargado de Arriendos';
+                
+                -- ES ENCARGADO DE ARRIENDOS 
+                REG_INFO.BONO_ESPECIAL_ANUAL := ROUND(REG_INFO.SUELDO_BASE_ANUAL * ((v_cantidad_arr * 5) /100),0);
+             
+            EXCEPTION   
+                WHEN NO_DATA_FOUND THEN
+                    REG_INFO.CARGO := 'Labores Administrativas';
+
+                    -- ES ENCARGADO DE LABORES ADMINISTRATIVAS
+                    
+                    -- X SUELDO BRUTO
+                    REG_INFO.BONO_ESPECIAL_ANUAL := ROUND(REG_INFO.SUELDO_BRUTO_ANUAL * 0.12,0);
+            END;
+            
+            /*
+                o	sueldo base +
+                 bono por años trabajados +
+                  bono por arriendo de camiones +
+                   bono por bienestar
+                   – descuento salud –
+                    descuento afp
+            */
+            -- IMPONIBLE ANUAL
+            REG_INFO.RENTA_IMPONIBLE_ANUAL  := REG_INFO.SUELDO_BASE_ANUAL + REG_INFO.BONO_ANNOS_ANUAL 
+            + REG_INFO.BONO_ESPECIAL_ANUAL + REG_INFO.DESCTOS_LEGALES;
+            
+            --OBJETIVO
+            INSERT INTO INFO_SII VALUES REG_INFO;
+            COMMIT;
+        EXCEPTION
+        WHEN OTHERS THEN
+            DBMS_OUTPUT.PUT_LINE('Error en el cursor' || SQLERRM);
+        END;
+    END LOOP;
+EXCEPTION
+    WHEN OTHERS THEN
+        DBMS_OUTPUT.PUT_LINE('Error en el bloque anónimo.' || SQLERRM);
+END;
+/
