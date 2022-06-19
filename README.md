@@ -1,29 +1,35 @@
-# Caso WeatherAUS - (Pronóstico del Clima en Australia)
+# Guías de mi bb, preparé esta sorpresa para ti ♡.
 
 <hr>
 
 ### Indice
 * [Objetivos](#objetivos)
-* [Acerca de los datos](#acerca-de-los-datos)
+* [Mensaje](#para-mi-bb)
 * [Lenguajes](#lenguajes)
 * [Herramientas](#herramientas)
 * [Carta](#carta)
-* [Integrantes](#integrantes)
+* [Créditos](#by)
 
 <hr>
 
 > ### Objetivos
-* [x] GUÍA 
-* [x] Preprocesamiento.
-* [x] Preparación del modelo.
-* [ ] Modelos de Machine Learning.   
+* [x] GUÍA 2.3.3
+* [x] GUÍA 2.4.3
+* [x] GUÍA 3
+* [x] GUÍA 4
+* [x] GUÍA 5
 
 <hr>
 
-### Acerca de los datos
+### Para mi bb
 ```sql
-  SELECT * FROM liss;
+  SELECT id, nombre , descripcion
+  FROM waifu
+  ORDER BY prioridad ASC;
 ```
+|  ID |NOMBRE      | DESCRIPCION |  
+|---  |---         |---          |
+|   1 |   LISSETTE ♡ | La waifu namber uan de mi kora<3, perdona nose inglés:c|   
 <hr>
 
 > ## Lenguajes
@@ -48,23 +54,38 @@ Te quiero.
 
 <!-- Instagram [Duck Duck Go](https://duckduckgo.com "The best search engine for privacy"). -->
 
+
+<hr>
+
+> ## Azukita uwu <3.
+
 <hr>
     <div align="center">
         <a href="https://www.instagram.com/x4leqxinn/" >
-            <img alt="Mona Xina" src="https://i.postimg.cc/SR575YXC/uwu.jpg" height="500" width="100%">
+            <img alt="Mona Xina Guns" src="https://i.postimg.cc/85QC026k/asuka.jpg" height="500px" width="100%">
         </a>
     </div>
 <hr>
 
-> ## Integrantes:
-- Joaquín Reyes.
-- José López.
-- Jorge Quintui (@4lequinn).
 
+> ## de mi para ti uwu.
 <hr>
     <div align="center">
         <a href="https://www.instagram.com/x4leqxinn/" >
-            <img alt="Mona Xina Guns" src="https://i.postimg.cc/8cg0YYqT/angel-beats2.gif" height="500" width="100%">
+            <img alt="Mona Xina" src="https://i.postimg.cc/RVfgrfyM/nashejpg.jpg" height="500px" width="500px">
+        </a>
+    </div>
+<hr>
+
+> ## By:
+- Jorge Quintui (@4lequinn).
+<hr>
+
+> ## Besitos, te quiero muxo ♡.
+<hr>
+    <div align="center">
+        <a href="https://www.instagram.com/x4leqxinn/" >
+            <img alt="Mona Xina Guns" src="https://i.postimg.cc/6QNJJtYP/besitos.jpg" height="500px" width="500px">
         </a>
     </div>
 <hr>
