@@ -1,5 +1,5 @@
 ------------------------------
--- CASO 2
+-- CASO 1
 ------------------------------
 
 
@@ -62,5 +62,87 @@ BEGIN
 EXCEPTION
     WHEN OTHERS THEN 
         DBMS_OUTPUT.PUT_LINE('Error en el bloque anónimo.');
+END;
+/
+
+
+----------------------------------------------
+-- CASO 2
+----------------------------------------------
+
+-- VARIABLE BIND 
+VARIABLE b_fecha_proceso VARCHAR2(10);
+
+
+DECLARE
+    -- CURSOR 
+    CURSOR C1 IS 
+        SELECT nro_cliente,
+        TO_CHAR(numrun,'999G999G999') || '-'|| DVRUN AS "rut", 
+        PNOMBRE || ' ' || SNOMBRE || ' ' || APPATERNO || ' ' || APMATERNO as "nombre",
+        COD_TIPO_CLIENTE
+        FROM CLIENTE;
+    
+    -- REGISTRO 
+    REG_CLIENTE CLIENTE_TODOSUMA%ROWTYPE;
+
+    -- VARRAY
+    TYPE tipo_pesos IS VARRAY(4) OF NUMBER(4) NOT NULL;
+
+    v_arreglo_pesos tipo_pesos DEFAULT tipo_pesos(1200,300,550,700); 
+
+BEGIN
+
+    -- ASIGNAMOS FECHA
+    :b_fecha_proceso := ADD_MONTHS(TO_DATE('01/01/2022'),-12);
+
+    -- TRUNCAR TABLA EN TIEMPO DE EJECUCIÓN
+    EXECUTE IMMEDIATE 'TRUNCATE TABLE CLIENTE_TODOSUMA';
+    COMMIT;
+
+    FOR x IN C1 
+    LOOP
+        BEGIN
+
+            -- CÁLCULOS
+
+            reg_cliente.NRO_CLIENTE := x.nro_cliente;
+            reg_cliente.RUN_CLIENTE := x."rut";
+            reg_cliente.NOMBRE_CLIENTE := x."nombre";
+            
+            SELECT NOMbRe_TIPO_CLIENTE 
+            INTO reg_cliente.TIPO_CLIENTE
+            FROM TIPO_CLIENTE
+            WHERE COD_TIPO_CLIENTE = x.cod_tipo_cliente;
+
+            select NVL(SUM(MONTO_SOLICITADO),0) 
+            INTO reg_cliente.MONTO_SOLIC_CREDITOS 
+            from CREDITO_CLIENTE 
+            WHERE NRO_CLIENTE = X.NRO_CLIENTE
+            AND TO_CHAR(FECHA_SOLIC_CRED,'YYYY') = TO_CHAR(TO_DATE(:b_fecha_proceso),'YYYY') ;
+           
+
+            -- PESOS NORMALES
+            reg_cliente.MONTO_PESOS_TODOSUMA := TRUNC(reg_cliente.MONTO_SOLIC_CREDITOS / 100000) * V_ARREGLO_PESOS(1);
+
+            -- PESOS EXTRA
+            IF reg_cliente.MONTO_SOLIC_CREDITOS between 1000001 AND 3000000 THEN
+                reg_cliente.MONTO_PESOS_TODOSUMA := reg_cliente.MONTO_PESOS_TODOSUMA + TRUNC(reg_cliente.MONTO_SOLIC_CREDITOS / 100000) * V_ARREGLO_PESOS(2);
+            ELSIF reg_cliente.MONTO_SOLIC_CREDITOS between 3000001 AND 6000000 THEN
+                reg_cliente.MONTO_PESOS_TODOSUMA := reg_cliente.MONTO_PESOS_TODOSUMA + TRUNC(reg_cliente.MONTO_SOLIC_CREDITOS / 100000) * V_ARREGLO_PESOS(3);
+            ELSIF reg_cliente.MONTO_SOLIC_CREDITOS > 6000000 THEN
+                reg_cliente.MONTO_PESOS_TODOSUMA := reg_cliente.MONTO_PESOS_TODOSUMA + TRUNC(reg_cliente.MONTO_SOLIC_CREDITOS / 100000) * V_ARREGLO_PESOS(4);
+            END IF;
+            
+
+            --OBJETIVO
+
+            insert into CLIENTE_TODOSUMA VALUES REG_CLIENTE;
+
+        EXCEPTION
+            WHEN OTHERS THEN
+                DBMS_OUTPUT.PUT_LINE('Error en el cursor.' || SQLERRM);
+        END;
+    END LOOP;
 END;
 /
